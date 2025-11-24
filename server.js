@@ -6,7 +6,7 @@ const winston = require("winston");
 dotenv.config();
 
 // ----------------------
-// Logging Setup (Optional)
+// Logging Setup (Console Only for Render)
 // ----------------------
 const logger = winston.createLogger({
   level: "info",
@@ -20,9 +20,7 @@ const logger = winston.createLogger({
     })
   ),
   transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: "logs/server.log", level: "info" }),
-    new winston.transports.File({ filename: "logs/server-error.log", level: "error" }),
+    new winston.transports.Console() // Render logs go here
   ],
 });
 
