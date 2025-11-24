@@ -6,7 +6,7 @@ const winston = require("winston");
 dotenv.config();
 
 // ----------------------
-// Logging Setup (Optional)
+// Logging Setup (Console Only for Render)
 // ----------------------
 const logger = winston.createLogger({
   level: "info",
@@ -19,11 +19,7 @@ const logger = winston.createLogger({
       return `[${timestamp}] [${level.toUpperCase()}]: ${message} ${metaString}`;
     })
   ),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: "logs/server.log", level: "info" }),
-    new winston.transports.File({ filename: "logs/server-error.log", level: "error" }),
-  ],
+  transports: [new winston.transports.Console()],
 });
 
 const { elevenWebhookHandler } = require("./services/elevenlabs");
@@ -31,7 +27,15 @@ const { elevenWebhookHandler } = require("./services/elevenlabs");
 const app = express();
 
 // ElevenLabs sends JSON requests
-app.use(express.json({ limit: "1mb" }));
+app.use(
+  express.json({
+    limit: "1mb",
+    verify: (req, res, buf) => {
+      // Save raw body for HMAC verification if needed later
+      req.rawBody = buf.toString();
+    },
+  })
+);
 
 // ----------------------
 // Health Check
@@ -44,7 +48,10 @@ app.get("/", (_req, res) => {
 // ----------------------
 // ElevenLabs Webhook Endpoint
 // ----------------------
-app.post("/elevenlabs", elevenWebhookHandler);
+app.post("/elevenlabs", (req, res) => {
+  logger.info("Incoming ElevenLabs Webhook Body:", req.body); // 👈 JSON’I GÖRMEK İÇİN EKLEDİK
+  return elevenWebhookHandler(req, res);
+});
 
 // ----------------------
 // Server Startup

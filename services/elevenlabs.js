@@ -1,8 +1,6 @@
 // services/elevenlabs.js
 const { createOrUpdateContact, addNote } = require("./ghl");
 const winston = require("winston");
-const fs = require("fs");
-const path = require("path");
 
 // ----------------------
 // Logging Setup
@@ -18,99 +16,69 @@ const logger = winston.createLogger({
       return `[${timestamp}] [${level.toUpperCase()}]: ${message} ${metaString}`;
     })
   ),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: "logs/elevenlabs.log", level: "info" }),
-    new winston.transports.File({ filename: "logs/elevenlabs-error.log", level: "error" }),
-  ],
+  transports: [new winston.transports.Console()],
 });
 
-// ---------------------------
-// Save Incoming Webhook JSON
-// ---------------------------
-function saveIncomingWebhook(body) {
-  try {
-    const dir = path.join(__dirname, "..", "logs");
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir);
-
-    const lastFile = path.join(dir, "last_webhook.json");
-    const historyFile = path.join(dir, "webhooks_history.json");
-
-    // 1️⃣ Save last webhook
-    fs.writeFileSync(lastFile, JSON.stringify(body, null, 2));
-
-    // 2️⃣ Append history (up to last 3)
-    let history = [];
-    if (fs.existsSync(historyFile)) {
-      history = JSON.parse(fs.readFileSync(historyFile, "utf-8") || "[]");
-    }
-
-    history.push({
-      receivedAt: new Date().toISOString(),
-      body: body
-    });
-
-    if (history.length > 3) {
-      history = history.slice(history.length - 3);
-    }
-
-    fs.writeFileSync(historyFile, JSON.stringify(history, null, 2));
-
-  } catch (err) {
-    console.error("Webhook JSON save error:", err);
-  }
-}
-
-// ---------------------------
-// Environment / Mode Settings
-// ---------------------------
-const TEST_MODE = process.env.NODE_ENV !== "production";
-
-/**
- * ElevenLabs webhook handler
- */
+// ----------------------
+// ElevenLabs Webhook Handler
+// ----------------------
 async function elevenWebhookHandler(req, res) {
   try {
     const body = req.body || {};
+    logger.info("Incoming ElevenLabs Webhook Body:", body);
 
-    // 🔥 Save full incoming webhook JSON
-    saveIncomingWebhook(body);
+    // -------------------------------
+    // 🔥 Extract from new ElevenLabs format
+    // -------------------------------
+    const data = body?.data || {};
 
-    const phone   = body.phone || body.caller_id || null;
-    const name    = body.name || body.userName || null;
-    const company = body.company || body.businessName || null;
+    // Caller phone number
+    const phone =
+      data?.conversation_initiation_client_data?.dynamic_variables?.system__caller_id ||
+      null;
 
-    const transcript =
-      body.transcript ||
-      (body.messages ? body.messages.map(m => m.text).join("\n") : null);
+    // Call SID
+    const callSid =
+      data?.conversation_initiation_client_data?.dynamic_variables?.system__call_sid ||
+      null;
 
-    const agentId = body.agentId || null;
-    const callSid = body.callSid || null;
+    // Transcript array → text
+    const transcriptArray = data?.transcript || [];
+    const transcript = transcriptArray
+      .map(t => `${t.role.toUpperCase()}: ${t.message}`)
+      .join("\n");
 
-    // Call time (fallback to None)
-    const startTime = body.start_time || "None";
-    const endTime   = body.end_time   || "None";
+    // Convert unix times
+    const startTime = data?.metadata?.start_time_unix_secs
+      ? new Date(data.metadata.start_time_unix_secs * 1000).toISOString()
+      : "Unknown";
 
-    // 1️⃣ Validate phone
+    const endTime = data?.metadata?.accepted_time_unix_secs
+      ? new Date(data.metadata.accepted_time_unix_secs * 1000).toISOString()
+      : "Unknown";
+
+    // -------------------------------
+    // 🔴 Validate required fields
+    // -------------------------------
     if (!phone) {
-      logger.warn("Missing phone number in ElevenLabs webhook payload");
-      return res.status(400).send("phone is required");
+      logger.warn("Missing caller_id in webhook payload");
+      return res.status(400).send("caller_id is required");
     }
 
-    logger.info("Received ElevenLabs webhook", {
+    logger.info("Extracted Caller Info", {
       phone,
-      name,
-      company,
-      agentId,
+      callSid,
       startTime,
       endTime
     });
 
-    // 2️⃣ Upsert contact
+    // -------------------------------
+    // 🔥 Create or Update GHL Contact
+    // -------------------------------
     const contact = await createOrUpdateContact({
-      name: name || "",
-      company: company || "",
-      phone
+      phone,
+      name: "",
+      company: ""
     });
 
     const contactId =
@@ -119,37 +87,35 @@ async function elevenWebhookHandler(req, res) {
       contact?.data?.id;
 
     if (!contactId) {
-      logger.error("Failed to extract contactId after create/update", {
-        rawContactResponse: contact
-      });
+      logger.error("Failed to extract contact ID", { contact });
       return res.status(500).send("Could not determine contact ID");
     }
 
-    logger.info("GHL contact created/updated", { contactId });
+    logger.info("GHL Contact Created/Updated", { contactId });
 
-    // 3️⃣ Add transcript note
-    const reference = callSid ? ` (Call SID: ${callSid})` : ` (${phone})`;
-    const transcriptText = transcript || "No transcript provided.";
-
+    // -------------------------------
+    // 🔥 Add Transcript Note
+    // -------------------------------
     const noteBody =
-      `📝 Transcript${reference}:\n` +
-      `📞 Call Start: ${startTime}\n` +
-      `📞 Call End:   ${endTime}\n\n` +
-      transcriptText;
+      `📝 ElevenLabs Call Transcript\n` +
+      `📞 Caller: ${phone}\n` +
+      `🆔 Call SID: ${callSid}\n` +
+      `⏳ Start: ${startTime}\n` +
+      `⏳ End: ${endTime}\n\n` +
+      transcript;
 
     await addNote(contactId, noteBody);
+    logger.info("Transcript Note Saved", { contactId });
 
-    logger.info("Transcript note saved", { contactId });
-
-    return res.status(200).send("ElevenLabs webhook processed successfully");
+    return res.status(200).send("Webhook processed successfully");
 
   } catch (err) {
     logger.error("Error processing ElevenLabs webhook", {
       error: err?.response?.data || err.message,
-      stack: err.stack,
+      stack: err.stack
     });
 
-    return res.status(500).send("Error processing ElevenLabs webhook");
+    return res.status(500).send("Error processing webhook");
   }
 }
 
