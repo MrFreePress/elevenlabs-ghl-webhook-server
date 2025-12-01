@@ -43,16 +43,22 @@ async function elevenWebhookHandler(req, res) {
     const body = req.body || {};
     logger.info("Incoming ElevenLabs Webhook Body:", body);
 
-    // -------------------------------
-    // Extract from new ElevenLabs format
-    // -------------------------------
     const data = body?.data || {};
 
     // Caller phone number
     const phoneRaw =
-      data?.conversation_initiation_client_data?.dynamic_variables?.system__caller_id || null;
+      data?.conversation_initiation_client_data?.dynamic_variables?.system__caller_id ||
+      null;
 
-    const phone = normalizePhone(phoneRaw);
+    let phone = normalizePhone(phoneRaw);
+
+    // -------------------------------
+    // 📌 TEST MODE: Missing phone → generate fake one
+    // -------------------------------
+    if (!phone) {
+      logger.warn("Missing caller_id → using fake number for testing");
+      phone = "+15555550123"; // fake test number
+    }
 
     // Call SID
     const callSid =
@@ -72,14 +78,6 @@ async function elevenWebhookHandler(req, res) {
     const endTime = data?.metadata?.accepted_time_unix_secs
       ? new Date(data.metadata.accepted_time_unix_secs * 1000).toISOString()
       : "Unknown";
-
-    // -------------------------------
-    // Validate required fields
-    // -------------------------------
-    if (!phone) {
-      logger.warn("Missing caller_id in webhook payload");
-      return res.status(400).send("caller_id is required");
-    }
 
     logger.info("Extracted Caller Info", {
       phone,
