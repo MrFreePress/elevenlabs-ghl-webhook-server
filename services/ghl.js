@@ -27,10 +27,7 @@ const logger = winston.createLogger({
 // Environment / Mode Settings
 // ---------------------------
 const TEST_MODE = process.env.NODE_ENV !== "production";
-
-// Correct GHL Base URL
-const GHL_BASE = "https://rest.gohighlevel.com/v1"; // REAL API
-
+const GHL_BASE = "https://rest.gohighlevel.com/v1";
 
 // ---------------------------
 // Helper: GHL Headers
@@ -41,7 +38,6 @@ function ghlHeaders() {
     "Content-Type": "application/json",
   };
 }
-
 
 // ---------------------------
 // Find Contact by Phone
@@ -97,28 +93,37 @@ async function findContactByPhone(phone) {
   }
 }
 
-
 // ---------------------------
 // Create or Update (Upsert) Contact
 // ---------------------------
-async function createOrUpdateContact({ name, company, phone }) {
+async function createOrUpdateContact({ firstName, lastName, company, phone, email }) {
   try {
     if (TEST_MODE) {
       logger.info("[TEST MODE] Simulating createOrUpdateContact", {
-        name,
+        firstName,
+        lastName,
         company,
         phone,
+        email,
       });
-      return { id: "mock-upsert", name, company, phone };
+      return { id: "mock-upsert", firstName, lastName, company, phone, email };
     }
 
-    logger.info("Creating/updating GHL contact", { name, company, phone });
+    logger.info("Creating/updating GHL contact", {
+      firstName,
+      lastName,
+      company,
+      phone,
+      email,
+    });
 
     const payload = {
       locationId: process.env.GHL_LOCATION_ID,
-      phone: phone || "",
-      firstName: name || "",
+      firstName: firstName || "",
+      lastName: lastName || "",
       companyName: company || "",
+      phone: phone || "",
+      email: email || "",
     };
 
     const { data } = await axios.post(`${GHL_BASE}/contacts/`, payload, {
@@ -142,7 +147,6 @@ async function createOrUpdateContact({ name, company, phone }) {
     throw err;
   }
 }
-
 
 // ---------------------------
 // Add Note to Contact
@@ -176,7 +180,6 @@ async function addNote(contactId, noteBody) {
     });
   }
 }
-
 
 // ---------------------------
 // Exports
