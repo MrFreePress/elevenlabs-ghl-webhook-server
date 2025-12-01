@@ -27,16 +27,11 @@ async function lookupHandler(req, res) {
     let phone = req.body?.phone;
 
     // -----------------------
-    // TEST MODE PHONE FALLBACK
+    // ALWAYS USE FALLBACK IF PHONE MISSING
     // -----------------------
     if (!phone) {
-      if (process.env.NODE_ENV !== "production") {
-        logger.warn("⚠ TEST MODE: No phone received → Using fake +15555550123");
-        phone = "+15555550123";
-      } else {
-        logger.error("❌ PROD MODE: Missing phone!");
-        return res.status(400).json({ error: "Missing phone" });
-      }
+      logger.warn("⚠ No phone provided → Using fallback test number +15555550123 (ALL ENVIRONMENTS)");
+      phone = "+15555550123";
     }
 
     logger.info("Lookup request received", { phone });
@@ -55,7 +50,7 @@ async function lookupHandler(req, res) {
         email: null,
         company: null,
         transcript: null,
-        notes: null
+        notes: null,
       });
     }
 
@@ -69,7 +64,7 @@ async function lookupHandler(req, res) {
     // -----------------------
     // STEP 3 → Extract transcript
     // -----------------------
-    const transcriptNote = notesList.find(n =>
+    const transcriptNote = notesList.find((n) =>
       n.body?.startsWith("Full Call Transcript") ||
       n.body?.startsWith("📝 Full Call Transcript")
     );
@@ -82,7 +77,7 @@ async function lookupHandler(req, res) {
     // STEP 4 → Combine all notes
     // -----------------------
     const allNotes = notesList.length
-      ? notesList.map(n => n.body).join("\n\n---\n\n")
+      ? notesList.map((n) => n.body).join("\n\n---\n\n")
       : "";
 
     // -----------------------
@@ -95,7 +90,7 @@ async function lookupHandler(req, res) {
       email: contact.email || "",
       company: contact.companyName || "",
       transcript,
-      notes: allNotes
+      notes: allNotes,
     });
 
   } catch (error) {
