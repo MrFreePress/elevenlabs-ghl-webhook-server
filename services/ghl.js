@@ -147,6 +147,20 @@ async function createOrUpdateContact({ firstName, lastName, company, phone, emai
     throw err;
   }
 }
+async function getContactNotes(contactId) {
+  try {
+    const url = `${GHL_BASE}/contacts/${contactId}/notes`;
+
+    const { data } = await axios.get(url, { headers: ghlHeaders() });
+    return data?.notes || [];
+  } catch (err) {
+    logger.error("Error fetching notes", {
+      contactId,
+      error: err?.response?.data || err.message,
+    });
+    return [];
+  }
+}
 
 // ---------------------------
 // Add Note to Contact
@@ -189,3 +203,4 @@ module.exports = {
   createOrUpdateContact,
   addNote,
 };
+
