@@ -47,7 +47,7 @@ async function elevenWebhookHandler(req, res) {
     const data = body?.data || {};
 
     // -------------------------------
-    // Caller phone number
+    // Caller Phone
     // -------------------------------
     const phoneRaw =
       data?.conversation_initiation_client_data?.dynamic_variables?.system__caller_id ||
@@ -55,9 +55,21 @@ async function elevenWebhookHandler(req, res) {
 
     let phone = normalizePhone(phoneRaw);
 
-    if (!phone) {
-      logger.error("Missing caller_id → ElevenLabs did not send caller phone.");
-      return res.status(400).send("Missing caller phone number (caller_id)");
+    // -------------------------------
+    // TEST vs PRODUCTION LOGIC
+    // -------------------------------
+    if (process.env.NODE_ENV === "production") {
+      // 🔥 PROD → MUST HAVE REAL PHONE
+      if (!phone) {
+        logger.error("❌ PROD MODE: Missing caller_id (real calls must send caller phone)");
+        return res.status(400).send("Missing caller phone number (caller_id)");
+      }
+    } else {
+      // 🔥 DEV / TEST → fallback to fake number
+      if (!phone) {
+        logger.warn("⚠ TEST MODE: No caller_id → Using FAKE TEST NUMBER +15555550123");
+        phone = "+15555550123";
+      }
     }
 
     // -------------------------------
@@ -68,7 +80,7 @@ async function elevenWebhookHandler(req, res) {
       null;
 
     // -------------------------------
-    // Transcript array → text
+    // Transcript Build
     // -------------------------------
     const transcriptArray = data?.transcript || [];
     const transcript = transcriptArray
@@ -76,7 +88,7 @@ async function elevenWebhookHandler(req, res) {
       .join("\n");
 
     // -------------------------------
-    // Convert unix timestamps
+    // Timestamps
     // -------------------------------
     const startTime = data?.metadata?.start_time_unix_secs
       ? new Date(data.metadata.start_time_unix_secs * 1000).toISOString()
@@ -94,14 +106,14 @@ async function elevenWebhookHandler(req, res) {
     });
 
     // -------------------------------
-    // 🔥 AI — Extract structured data
+    // AI Extraction
     // -------------------------------
     logger.info("Running AI extraction...");
     const ai = await extractAiData(transcript);
     logger.info("AI extracted data:", ai);
 
     // -------------------------------
-    // 🔥 Create or Update GHL Contact
+    // Create / Update Contact
     // -------------------------------
     const contact = await createOrUpdateContact({
       firstName: ai?.firstName || "",
@@ -124,46 +136,31 @@ async function elevenWebhookHandler(req, res) {
     logger.info("GHL Contact Created/Updated", { contactId });
 
     // -------------------------------
-    // 🔥 Add Call Details Note
+    // Save Notes
     // -------------------------------
     const callDetailsNote =
-      `📞 ElevenLabs Call Details\n` +
+      `ElevenLabs Call Details\n` +
       `Caller: ${phone}\n` +
       `Call SID: ${callSid}\n` +
       `Start: ${startTime}\n` +
       `End: ${endTime}`;
-
     await addNote(contactId, callDetailsNote);
-    logger.info("Call Details Note Saved", { contactId });
 
-    // -------------------------------
-    // 🔥 Add Transcript Note
-    // -------------------------------
-    const transcriptNote =
-      `📝 Full Call Transcript\n\n${transcript}`;
-
+    const transcriptNote = `Full Call Transcript\n\n${transcript}`;
     await addNote(contactId, transcriptNote);
-    logger.info("Transcript Note Saved", { contactId });
 
-    // -------------------------------
-    // 🔥 Add AI Summary Note
-    // -------------------------------
     const aiNote =
-      `🤖 AI Summary\n` +
+      `AI Summary\n` +
       `First Name: ${ai?.firstName}\n` +
       `Last Name: ${ai?.lastName}\n` +
       `Email: ${ai?.email}\n` +
       `Company: ${ai?.companyName || ai?.businessName}\n\n` +
       `Summary:\n${ai?.summary}`;
-
     await addNote(contactId, aiNote);
-    logger.info("AI Summary Note Saved", { contactId });
 
-    // -------------------------------
-    // SUCCESS RESPONSE
-    // -------------------------------
+    logger.info("All Notes Saved", { contactId });
+
     return res.status(200).send("Webhook processed successfully");
-
   } catch (err) {
     logger.error("Error processing ElevenLabs webhook", {
       error: err?.response?.data || err.message,
