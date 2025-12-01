@@ -28,6 +28,7 @@ function normalizePhone(phone) {
 
   let digits = phone.replace(/\D/g, "");
 
+  // US number without country code → add +1
   if (digits.length === 10) {
     digits = "1" + digits;
   }
@@ -45,31 +46,38 @@ async function elevenWebhookHandler(req, res) {
 
     const data = body?.data || {};
 
+    // -------------------------------
     // Caller phone number
+    // -------------------------------
     const phoneRaw =
       data?.conversation_initiation_client_data?.dynamic_variables?.system__caller_id ||
       null;
 
     let phone = normalizePhone(phoneRaw);
 
-    // ❗ REAL MODE — MUST HAVE REAL CALLER ID
     if (!phone) {
-      logger.error("Missing caller_id → ElevenLabs did NOT send caller phone.");
+      logger.error("Missing caller_id → ElevenLabs did not send caller phone.");
       return res.status(400).send("Missing caller phone number (caller_id)");
     }
 
+    // -------------------------------
     // Call SID
+    // -------------------------------
     const callSid =
       data?.conversation_initiation_client_data?.dynamic_variables?.system__call_sid ||
       null;
 
+    // -------------------------------
     // Transcript array → text
+    // -------------------------------
     const transcriptArray = data?.transcript || [];
     const transcript = transcriptArray
       .map((t) => `${t.role.toUpperCase()}: ${t.message}`)
       .join("\n");
 
-    // Convert unix times
+    // -------------------------------
+    // Convert unix timestamps
+    // -------------------------------
     const startTime = data?.metadata?.start_time_unix_secs
       ? new Date(data.metadata.start_time_unix_secs * 1000).toISOString()
       : "Unknown";
@@ -86,7 +94,7 @@ async function elevenWebhookHandler(req, res) {
     });
 
     // -------------------------------
-    // 🔥 AI — Extract Name, Email, Company, Summary
+    // 🔥 AI — Extract structured data
     // -------------------------------
     logger.info("Running AI extraction...");
     const ai = await extractAiData(transcript);
@@ -126,12 +134,16 @@ async function elevenWebhookHandler(req, res) {
       `End: ${endTime}`;
 
     await addNote(contactId, callDetailsNote);
+    logger.info("Call Details Note Saved", { contactId });
 
     // -------------------------------
     // 🔥 Add Transcript Note
     // -------------------------------
-    const transcriptNote = `📝 Full Call Transcript\n\n${transcript}`;
+    const transcriptNote =
+      `📝 Full Call Transcript\n\n${transcript}`;
+
     await addNote(contactId, transcriptNote);
+    logger.info("Transcript Note Saved", { contactId });
 
     // -------------------------------
     // 🔥 Add AI Summary Note
@@ -145,7 +157,11 @@ async function elevenWebhookHandler(req, res) {
       `Summary:\n${ai?.summary}`;
 
     await addNote(contactId, aiNote);
+    logger.info("AI Summary Note Saved", { contactId });
 
+    // -------------------------------
+    // SUCCESS RESPONSE
+    // -------------------------------
     return res.status(200).send("Webhook processed successfully");
 
   } catch (err) {
