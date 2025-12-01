@@ -48,7 +48,14 @@ async function findContactByPhone(phone) {
 
     if (TEST_MODE) {
       logger.info("[TEST MODE] Simulating findContactByPhone", { phone });
-      return { id: "mock-contact", phone };
+      return {
+        id: "mock-contact",
+        firstName: "Test",
+        lastName: "User",
+        email: "test@example.com",
+        companyName: "TestCorp",
+        phone: phone,
+      };
     }
 
     logger.info("Searching GHL contact by phone", { phone });
@@ -94,7 +101,7 @@ async function findContactByPhone(phone) {
 }
 
 // ---------------------------
-// Create or Update (Upsert) Contact
+// Create or Update (SAFE UPSERT)
 // ---------------------------
 async function createOrUpdateContact({ firstName, lastName, company, phone, email }) {
   try {
@@ -109,22 +116,18 @@ async function createOrUpdateContact({ firstName, lastName, company, phone, emai
       return { id: "mock-upsert", firstName, lastName, company, phone, email };
     }
 
-    logger.info("Creating/updating GHL contact", {
-      firstName,
-      lastName,
-      company,
-      phone,
-      email,
-    });
+    logger.info("Creating/updating GHL contact");
 
+    // NEW: ONLY send non-empty fields
     const payload = {
       locationId: process.env.GHL_LOCATION_ID,
-      firstName: firstName || "",
-      lastName: lastName || "",
-      companyName: company || "",
-      phone: phone || "",
-      email: email || "",
     };
+
+    if (firstName) payload.firstName = firstName;
+    if (lastName) payload.lastName = lastName;
+    if (company) payload.companyName = company;
+    if (phone) payload.phone = phone;
+    if (email) payload.email = email;
 
     const { data } = await axios.post(`${GHL_BASE}/contacts/`, payload, {
       headers: ghlHeaders(),
@@ -149,7 +152,28 @@ async function createOrUpdateContact({ firstName, lastName, company, phone, emai
 }
 
 // ---------------------------
-// Add Note to Contact
+// Get Notes
+// ---------------------------
+async function getContactNotes(contactId) {
+  try {
+    if (TEST_MODE) {
+      return [{ body: "Test note 1" }, { body: "Test note 2" }];
+    }
+
+    const url = `${GHL_BASE}/contacts/${contactId}/notes`;
+    const { data } = await axios.get(url, { headers: ghlHeaders() });
+    return data?.notes || [];
+  } catch (err) {
+    logger.error("Error fetching notes", {
+      contactId,
+      error: err?.response?.data || err.message,
+    });
+    return [];
+  }
+}
+
+// ---------------------------
+// Add Note
 // ---------------------------
 async function addNote(contactId, noteBody) {
   if (!contactId || !noteBody) {
@@ -188,4 +212,5 @@ module.exports = {
   findContactByPhone,
   createOrUpdateContact,
   addNote,
+  getContactNotes,
 };

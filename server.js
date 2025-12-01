@@ -6,7 +6,7 @@ const winston = require("winston");
 dotenv.config();
 
 // ----------------------
-// Logging Setup (Console Only for Render)
+// Logging Setup
 // ----------------------
 const logger = winston.createLogger({
   level: "info",
@@ -22,7 +22,11 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
+// ----------------------
+// Handlers
+// ----------------------
 const { elevenWebhookHandler } = require("./services/elevenlabs");
+const { lookupHandler } = require("./services/lookup"); // 👈 YENİ EKLENİYOR
 
 const app = express();
 
@@ -31,8 +35,7 @@ app.use(
   express.json({
     limit: "1mb",
     verify: (req, res, buf) => {
-      // Save raw body for HMAC verification if needed later
-      req.rawBody = buf.toString();
+      req.rawBody = buf.toString(); // gerektiğinde HMAC için
     },
   })
 );
@@ -42,15 +45,23 @@ app.use(
 // ----------------------
 app.get("/", (_req, res) => {
   logger.info("Health check accessed");
-  res.status(200).send("ElevenLabs → GHL webhook is running");
+  res.status(200).send("ElevenLabs → GHL Webhook Server is running");
 });
 
 // ----------------------
-// ElevenLabs Webhook Endpoint
+// POST-CALL Webhook (Transcription)
 // ----------------------
 app.post("/elevenlabs", (req, res) => {
-  logger.info("Incoming ElevenLabs Webhook Body:", req.body); // 👈 JSON’I GÖRMEK İÇİN EKLEDİK
+  logger.info("Incoming ElevenLabs POST-CALL Webhook:", req.body);
   return elevenWebhookHandler(req, res);
+});
+
+// ----------------------
+// REALTIME LOOKUP Webhook (Before Call Starts)
+// ----------------------
+app.post("/lookup", (req, res) => {
+  logger.info("Incoming ElevenLabs LOOKUP Webhook:", req.body);
+  return lookupHandler(req, res);
 });
 
 // ----------------------
