@@ -52,17 +52,16 @@ async function elevenWebhookHandler(req, res) {
 
     let phone = normalizePhone(phoneRaw);
 
-    // -------------------------------
-    // 📌 TEST MODE: Missing phone → generate fake one
-    // -------------------------------
+    // ❗ REAL MODE — MUST HAVE REAL CALLER ID
     if (!phone) {
-      logger.warn("Missing caller_id → using fake number for testing");
-      phone = "+15555550123"; // fake test number
+      logger.error("Missing caller_id → ElevenLabs did NOT send caller phone.");
+      return res.status(400).send("Missing caller phone number (caller_id)");
     }
 
     // Call SID
     const callSid =
-      data?.conversation_initiation_client_data?.dynamic_variables?.system__call_sid || null;
+      data?.conversation_initiation_client_data?.dynamic_variables?.system__call_sid ||
+      null;
 
     // Transcript array → text
     const transcriptArray = data?.transcript || [];
@@ -90,9 +89,7 @@ async function elevenWebhookHandler(req, res) {
     // 🔥 AI — Extract Name, Email, Company, Summary
     // -------------------------------
     logger.info("Running AI extraction...");
-
     const ai = await extractAiData(transcript);
-
     logger.info("AI extracted data:", ai);
 
     // -------------------------------
@@ -129,15 +126,12 @@ async function elevenWebhookHandler(req, res) {
       `End: ${endTime}`;
 
     await addNote(contactId, callDetailsNote);
-    logger.info("Call Details Note Saved", { contactId });
 
     // -------------------------------
     // 🔥 Add Transcript Note
     // -------------------------------
     const transcriptNote = `📝 Full Call Transcript\n\n${transcript}`;
-
     await addNote(contactId, transcriptNote);
-    logger.info("Transcript Note Saved", { contactId });
 
     // -------------------------------
     // 🔥 Add AI Summary Note
@@ -151,9 +145,9 @@ async function elevenWebhookHandler(req, res) {
       `Summary:\n${ai?.summary}`;
 
     await addNote(contactId, aiNote);
-    logger.info("AI Summary Note Saved", { contactId });
 
     return res.status(200).send("Webhook processed successfully");
+
   } catch (err) {
     logger.error("Error processing ElevenLabs webhook", {
       error: err?.response?.data || err.message,
