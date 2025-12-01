@@ -19,7 +19,8 @@ GHL_API_KEY=YOUR_GHL_API_KEY_HERE
 # The Location ID associated with your GHL account
 GHL_LOCATION_ID=YOUR_GHL_LOCATION_ID_HERE
 
-
+# the open AI API key
+OPENAI_API_KEY=your OpenAI API key here
 # --------------------------
 # ElevenLabs Configuration
 # --------------------------
