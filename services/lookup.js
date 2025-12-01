@@ -24,16 +24,26 @@ const logger = winston.createLogger({
 // -------------------------
 async function lookupHandler(req, res) {
   try {
-    const phone = req.body?.phone;
+    let phone = req.body?.phone;
 
+    // -----------------------
+    // TEST MODE PHONE FALLBACK
+    // -----------------------
     if (!phone) {
-      logger.warn("Missing phone in lookup request");
-      return res.status(400).json({ error: "Missing phone" });
+      if (process.env.NODE_ENV !== "production") {
+        logger.warn("⚠ TEST MODE: No phone received → Using fake +15555550123");
+        phone = "+15555550123";
+      } else {
+        logger.error("❌ PROD MODE: Missing phone!");
+        return res.status(400).json({ error: "Missing phone" });
+      }
     }
 
     logger.info("Lookup request received", { phone });
 
+    // -----------------------
     // STEP 1 → Find contact
+    // -----------------------
     const contact = await findContactByPhone(phone);
 
     if (!contact) {
@@ -51,22 +61,33 @@ async function lookupHandler(req, res) {
 
     logger.info("Contact FOUND", { contactId: contact.id });
 
-    // STEP 2 → Fetch all notes
+    // -----------------------
+    // STEP 2 → Fetch notes
+    // -----------------------
     const notesList = await getContactNotes(contact.id);
 
-    // STEP 3 → Find transcript note
+    // -----------------------
+    // STEP 3 → Extract transcript
+    // -----------------------
     const transcriptNote = notesList.find(n =>
+      n.body?.startsWith("Full Call Transcript") ||
       n.body?.startsWith("📝 Full Call Transcript")
     );
 
     const transcript = transcriptNote
-      ? transcriptNote.body.replace("📝 Full Call Transcript\n\n", "")
+      ? transcriptNote.body.replace(/^📝 Full Call Transcript\n\n?/, "")
       : "";
 
+    // -----------------------
     // STEP 4 → Combine all notes
-    const allNotes = notesList.map(n => n.body).join("\n\n---\n\n");
+    // -----------------------
+    const allNotes = notesList.length
+      ? notesList.map(n => n.body).join("\n\n---\n\n")
+      : "";
 
-    // STEP 5 → Return formatted response
+    // -----------------------
+    // STEP 5 → Return response
+    // -----------------------
     return res.json({
       found: true,
       firstName: contact.firstName || "",
