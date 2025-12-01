@@ -1,8 +1,10 @@
 // services/lookup.js
-const { findContactByPhone } = require("./ghl");
+const { findContactByPhone, getContactNotes } = require("./ghl");
 const winston = require("winston");
 
-// Logging
+// ----------------------
+// Logging Setup
+// ----------------------
 const logger = winston.createLogger({
   level: "info",
   format: winston.format.combine(
@@ -31,6 +33,7 @@ async function lookupHandler(req, res) {
 
     logger.info("Lookup request received", { phone });
 
+    // STEP 1 → Find contact
     const contact = await findContactByPhone(phone);
 
     if (!contact) {
@@ -48,15 +51,30 @@ async function lookupHandler(req, res) {
 
     logger.info("Contact FOUND", { contactId: contact.id });
 
-    // Build response for ElevenLabs tool
+    // STEP 2 → Fetch all notes
+    const notesList = await getContactNotes(contact.id);
+
+    // STEP 3 → Find transcript note
+    const transcriptNote = notesList.find(n =>
+      n.body?.startsWith("📝 Full Call Transcript")
+    );
+
+    const transcript = transcriptNote
+      ? transcriptNote.body.replace("📝 Full Call Transcript\n\n", "")
+      : "";
+
+    // STEP 4 → Combine all notes
+    const allNotes = notesList.map(n => n.body).join("\n\n---\n\n");
+
+    // STEP 5 → Return formatted response
     return res.json({
       found: true,
       firstName: contact.firstName || "",
       lastName: contact.lastName || "",
       email: contact.email || "",
       company: contact.companyName || "",
-      transcript: contact.transcript || "",
-      notes: contact.notes || ""
+      transcript,
+      notes: allNotes
     });
 
   } catch (error) {
