@@ -1,5 +1,6 @@
 // services/elevenlabs.js
 const { createOrUpdateContact, addNote } = require("./ghl");
+const { extractAiData } = require("./ai");
 const winston = require("winston");
 
 // ----------------------
@@ -20,6 +21,21 @@ const logger = winston.createLogger({
 });
 
 // ----------------------
+// Phone Normalizer
+// ----------------------
+function normalizePhone(phone) {
+  if (!phone) return null;
+
+  let digits = phone.replace(/\D/g, "");
+
+  if (digits.length === 10) {
+    digits = "1" + digits;
+  }
+
+  return "+" + digits;
+}
+
+// ----------------------
 // ElevenLabs Webhook Handler
 // ----------------------
 async function elevenWebhookHandler(req, res) {
@@ -27,25 +43,31 @@ async function elevenWebhookHandler(req, res) {
     const body = req.body || {};
     logger.info("Incoming ElevenLabs Webhook Body:", body);
 
-    // -------------------------------
-    // 🔥 Extract from new ElevenLabs format
-    // -------------------------------
     const data = body?.data || {};
 
     // Caller phone number
-    const phone =
+    const phoneRaw =
       data?.conversation_initiation_client_data?.dynamic_variables?.system__caller_id ||
       null;
 
+    let phone = normalizePhone(phoneRaw);
+
+    // -------------------------------
+    // 📌 TEST MODE: Missing phone → generate fake one
+    // -------------------------------
+    if (!phone) {
+      logger.warn("Missing caller_id → using fake number for testing");
+      phone = "+15555550123"; // fake test number
+    }
+
     // Call SID
     const callSid =
-      data?.conversation_initiation_client_data?.dynamic_variables?.system__call_sid ||
-      null;
+      data?.conversation_initiation_client_data?.dynamic_variables?.system__call_sid || null;
 
     // Transcript array → text
     const transcriptArray = data?.transcript || [];
     const transcript = transcriptArray
-      .map(t => `${t.role.toUpperCase()}: ${t.message}`)
+      .map((t) => `${t.role.toUpperCase()}: ${t.message}`)
       .join("\n");
 
     // Convert unix times
@@ -57,28 +79,31 @@ async function elevenWebhookHandler(req, res) {
       ? new Date(data.metadata.accepted_time_unix_secs * 1000).toISOString()
       : "Unknown";
 
-    // -------------------------------
-    // 🔴 Validate required fields
-    // -------------------------------
-    if (!phone) {
-      logger.warn("Missing caller_id in webhook payload");
-      return res.status(400).send("caller_id is required");
-    }
-
     logger.info("Extracted Caller Info", {
       phone,
       callSid,
       startTime,
-      endTime
+      endTime,
     });
+
+    // -------------------------------
+    // 🔥 AI — Extract Name, Email, Company, Summary
+    // -------------------------------
+    logger.info("Running AI extraction...");
+
+    const ai = await extractAiData(transcript);
+
+    logger.info("AI extracted data:", ai);
 
     // -------------------------------
     // 🔥 Create or Update GHL Contact
     // -------------------------------
     const contact = await createOrUpdateContact({
+      firstName: ai?.firstName || "",
+      lastName: ai?.lastName || "",
+      email: ai?.email || "",
+      company: ai?.companyName || ai?.businessName || "",
       phone,
-      name: "",
-      company: ""
     });
 
     const contactId =
@@ -94,25 +119,45 @@ async function elevenWebhookHandler(req, res) {
     logger.info("GHL Contact Created/Updated", { contactId });
 
     // -------------------------------
+    // 🔥 Add Call Details Note
+    // -------------------------------
+    const callDetailsNote =
+      `📞 ElevenLabs Call Details\n` +
+      `Caller: ${phone}\n` +
+      `Call SID: ${callSid}\n` +
+      `Start: ${startTime}\n` +
+      `End: ${endTime}`;
+
+    await addNote(contactId, callDetailsNote);
+    logger.info("Call Details Note Saved", { contactId });
+
+    // -------------------------------
     // 🔥 Add Transcript Note
     // -------------------------------
-    const noteBody =
-      `📝 ElevenLabs Call Transcript\n` +
-      `📞 Caller: ${phone}\n` +
-      `🆔 Call SID: ${callSid}\n` +
-      `⏳ Start: ${startTime}\n` +
-      `⏳ End: ${endTime}\n\n` +
-      transcript;
+    const transcriptNote = `📝 Full Call Transcript\n\n${transcript}`;
 
-    await addNote(contactId, noteBody);
+    await addNote(contactId, transcriptNote);
     logger.info("Transcript Note Saved", { contactId });
 
-    return res.status(200).send("Webhook processed successfully");
+    // -------------------------------
+    // 🔥 Add AI Summary Note
+    // -------------------------------
+    const aiNote =
+      `🤖 AI Summary\n` +
+      `First Name: ${ai?.firstName}\n` +
+      `Last Name: ${ai?.lastName}\n` +
+      `Email: ${ai?.email}\n` +
+      `Company: ${ai?.companyName || ai?.businessName}\n\n` +
+      `Summary:\n${ai?.summary}`;
 
+    await addNote(contactId, aiNote);
+    logger.info("AI Summary Note Saved", { contactId });
+
+    return res.status(200).send("Webhook processed successfully");
   } catch (err) {
     logger.error("Error processing ElevenLabs webhook", {
       error: err?.response?.data || err.message,
-      stack: err.stack
+      stack: err.stack,
     });
 
     return res.status(500).send("Error processing webhook");
